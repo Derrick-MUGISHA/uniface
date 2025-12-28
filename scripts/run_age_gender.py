@@ -12,11 +12,10 @@ from uniface import SCRFD, AgeGender, RetinaFace
 from uniface.visualization import draw_detections
 
 
-def draw_age_gender_label(image, bbox, gender_id: int, age: int):
+def draw_age_gender_label(image, bbox, sex: str, age: int):
     """Draw age/gender label above the bounding box."""
     x1, y1 = int(bbox[0]), int(bbox[1])
-    gender_str = 'Female' if gender_id == 0 else 'Male'
-    text = f'{gender_str}, {age}y'
+    text = f'{sex}, {age}y'
     (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
     cv2.rectangle(image, (x1, y1 - th - 10), (x1 + tw + 10, y1), (0, 255, 0), -1)
     cv2.putText(image, text, (x1 + 5, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
@@ -48,10 +47,9 @@ def process_image(
     )
 
     for i, face in enumerate(faces):
-        gender_id, age = age_gender.predict(image, face['bbox'])
-        gender_str = 'Female' if gender_id == 0 else 'Male'
-        print(f'  Face {i + 1}: {gender_str}, {age} years old')
-        draw_age_gender_label(image, face['bbox'], gender_id, age)
+        result = age_gender.predict(image, face['bbox'])
+        print(f'  Face {i + 1}: {result.sex}, {result.age} years old')
+        draw_age_gender_label(image, face['bbox'], result.sex, result.age)
 
     os.makedirs(save_dir, exist_ok=True)
     output_path = os.path.join(save_dir, f'{Path(image_path).stem}_age_gender.jpg')
@@ -84,8 +82,8 @@ def run_webcam(detector, age_gender, threshold: float = 0.6):
         )
 
         for face in faces:
-            gender_id, age = age_gender.predict(frame, face['bbox'])  # predict per face
-            draw_age_gender_label(frame, face['bbox'], gender_id, age)
+            result = age_gender.predict(frame, face['bbox'])
+            draw_age_gender_label(frame, face['bbox'], result.sex, result.age)
 
         cv2.putText(
             frame,
