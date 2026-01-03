@@ -16,6 +16,15 @@ from uniface.types import Face
 
 from .base import BaseDetector
 
+# Optional torchvision import for faster NMS
+try:
+    import torch
+    import torchvision
+
+    TORCHVISION_AVAILABLE = True
+except ImportError:
+    TORCHVISION_AVAILABLE = False
+
 __all__ = ['YOLOv5Face']
 
 
@@ -34,6 +43,8 @@ class YOLOv5Face(BaseDetector):
         nms_threshold (float): Non-Maximum Suppression threshold. Defaults to 0.5.
         input_size (int): Input image size. Defaults to 640.
             Note: ONNX model is fixed at 640. Changing this will cause inference errors.
+        nms_mode (str): NMS calculation method. Options: 'torchvision' (faster, requires torch)
+            or 'numpy' (no dependencies). Defaults to 'torchvision' if available.
         **kwargs: Advanced options:
             max_det (int): Maximum number of detections to return. Defaults to 750.
 
@@ -42,6 +53,7 @@ class YOLOv5Face(BaseDetector):
         confidence_threshold (float): Threshold used to filter low-confidence detections.
         nms_threshold (float): Threshold used during NMS to suppress overlapping boxes.
         input_size (int): Image size to which inputs are resized before inference.
+        nms_mode (str): NMS calculation method being used.
         max_det (int): Maximum number of detections to return.
         _model_path (str): Absolute path to the downloaded/verified model weights.
 
@@ -57,6 +69,7 @@ class YOLOv5Face(BaseDetector):
         confidence_threshold: float = 0.6,
         nms_threshold: float = 0.5,
         input_size: int = 640,
+        nms_mode: Literal['torchvision', 'numpy'] = 'numpy',
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -64,6 +77,7 @@ class YOLOv5Face(BaseDetector):
             confidence_threshold=confidence_threshold,
             nms_threshold=nms_threshold,
             input_size=input_size,
+            nms_mode=nms_mode,
             **kwargs,
         )
         self._supports_landmarks = True  # YOLOv5-Face supports landmarks
@@ -79,12 +93,19 @@ class YOLOv5Face(BaseDetector):
         self.nms_threshold = nms_threshold
         self.input_size = input_size
 
+        # Set NMS mode with automatic fallback
+        if nms_mode == 'torchvision' and not TORCHVISION_AVAILABLE:
+            Logger.warning('torchvision not available, falling back to numpy NMS')
+            self.nms_mode = 'numpy'
+        else:
+            self.nms_mode = nms_mode
+
         # Advanced options from kwargs
         self.max_det = kwargs.get('max_det', 750)
 
         Logger.info(
             f'Initializing YOLOv5Face with model={self.model_name}, confidence_threshold={self.confidence_threshold}, '
-            f'nms_threshold={self.nms_threshold}, input_size={self.input_size}'
+            f'nms_threshold={self.nms_threshold}, input_size={self.input_size}, nms_mode={self.nms_mode}'
         )
 
         # Get path to model weights
@@ -205,9 +226,16 @@ class YOLOv5Face(BaseDetector):
         # Get landmarks (5 points, 10 coordinates)
         landmarks = predictions[:, 5:15].copy()
 
-        # Apply NMS
-        detections_for_nms = np.hstack((boxes, scores[:, None])).astype(np.float32, copy=False)
-        keep = non_max_suppression(detections_for_nms, self.nms_threshold)
+        # Apply NMS based on selected mode
+        if self.nms_mode == 'torchvision':
+            keep = torchvision.ops.nms(
+                torch.tensor(boxes, dtype=torch.float32),
+                torch.tensor(scores, dtype=torch.float32),
+                self.nms_threshold,
+            ).numpy()
+        else:
+            detections = np.hstack((boxes, scores[:, None])).astype(np.float32, copy=False)
+            keep = non_max_suppression(detections, self.nms_threshold)
 
         if len(keep) == 0:
             return np.array([]), np.array([])
