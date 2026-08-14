@@ -1,5 +1,4 @@
 tmp_*
-.vscode/
 .claude
 
 # CLI tools in tools/ write results here by default (--save-dir)
